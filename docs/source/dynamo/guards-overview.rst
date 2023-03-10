@@ -15,7 +15,7 @@ Where a complete example looks like this:
 
    from typing import List
    import torch
-   import torchdynamo
+   from torch import _dynamo as torchdynamo
    def my_compiler(gm: torch.fx.GraphModule, example_inputs: List[torch.Tensor]):
        print("my_compiler() called with FX graph:")
        gm.graph.print_tabular()
@@ -275,7 +275,7 @@ mind:
 
 -  It stores the variable ``source`` of type ``Source``, from
    ``torchdynamo/source.py``. This source type is a relatively self
-   contained class that helps us organize and bookeep where the original
+   contained class that helps us organize and bookkeep where the original
    source came from, and helps provide convenience methods for things
    like getting the name, and importantly for us, producing guards.
 
