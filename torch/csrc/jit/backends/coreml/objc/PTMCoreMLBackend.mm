@@ -18,7 +18,7 @@
 // This is a utility macro that can be used to throw an exception when a CoreML
 // API function produces a NSError. The exception will contain a message with
 // useful info extracted from the NSError.
-#define COREML_THROW_IF_ERROR(error, preamble, inputShapesStr)                   \
+#define COREML_THROW_IF_ERROR(error, preamble, ...)     \
   do {                                                                           \
     if C10_LIKELY(error) {                                                       \
       throw c10::Error(                                                          \
@@ -30,7 +30,7 @@
               " Domain: ", error.domain.UTF8String,                              \
               " Code: ", error.code,                                             \
               " User Info: ", error.userInfo.description.UTF8String,             \
-              " Input Shapes: ", inputShapesStr));                               \
+              ##__VA_ARGS__));                                                   \
     }                                                                            \
   } while (false)
 
@@ -104,12 +104,17 @@ GenericList pack_outputs(const std::vector<TensorSpec>& output_specs, id<MLFeatu
     for (int i = 0; i < val.multiArrayValue.shape.count; ++i) {
       output_shape.emplace_back(val.multiArrayValue.shape[i].integerValue);
     }
-    auto tensor = at::empty(IntArrayRef(output_shape), spec.dtype);
+    TORCH_CHECK(val.multiArrayValue.dataType == MLMultiArrayDataTypeFloat32, "Core ML backend unexpected output data type");
     int64_t count = val.multiArrayValue.count;
-    memcpy(
-      tensor.data_ptr<float>(),
-      (float*)val.multiArrayValue.dataPointer,
-      count * sizeof(float));
+    float* temp = static_cast<float*>(std::malloc(count * sizeof(float)));
+    if (@available(iOS 15.4, *)) {
+      [val.multiArrayValue getBytesWithHandler:^(const void * _Nonnull bytes, NSInteger size) {
+        memcpy(temp, (float *)bytes, count * sizeof(float));
+      }];
+    } else {
+      memcpy(temp, (float *)val.multiArrayValue.dataPointer, count * sizeof(float));
+    }
+    auto tensor = at::from_blob(temp, output_shape, [&](void* ptr) { std::free(ptr); }, TensorOptions().dtype(at::kFloat));
     outputs.push_back(std::move(tensor));
   }
   if(output_specs.size() > 1){
@@ -127,7 +132,7 @@ class CoreMLBackend: public torch::jit::PyTorchBackendInterface {
     const c10::Dict<IValue, IValue> model_dict = processed.toGenericDict();
     const std::string& extra = model_dict.at("extra").toStringRef();
     const std::string& model = model_dict.at("model").toStringRef();
-    const std::string& modelID = model_dict.at("hash").toStringRef();
+    const std::string modelID = std::string(model_dict.at("hash").toStringRef());
 
     CoreMLConfig config;
     std::vector<TensorSpec> input_specs;
@@ -150,10 +155,11 @@ class CoreMLBackend: public torch::jit::PyTorchBackendInterface {
       TORCH_CHECK(false, "Compiling MLModel failed");
     }
 
-    MLModel *cpuModel = [PTMCoreMLCompiler loadModel:modelID backend:"cpu" allowLowPrecision:NO];
+    NSError *error = nil;
+    MLModel *cpuModel = [PTMCoreMLCompiler loadModel:modelID backend:"cpu" allowLowPrecision:NO error:&error];
 
     if (!cpuModel) {
-      TORCH_CHECK(false, "Loading MLModel failed");
+      COREML_THROW_IF_ERROR(error, "Error loading MLModel", " Model spec: ", extra.c_str(), ", Model Hash: ", modelID.c_str());
     }
 
     NSMutableArray *orderedFeatures = [NSMutableArray array];
@@ -167,7 +173,9 @@ class CoreMLBackend: public torch::jit::PyTorchBackendInterface {
     [executor autorelease];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-      MLModel *configuredModel = [PTMCoreMLCompiler loadModel:modelID backend:config.backend allowLowPrecision:config.allow_low_precision];
+      NSError *error = nil;
+      MLModel *configuredModel = [PTMCoreMLCompiler loadModel:modelID backend:config.backend allowLowPrecision:config.allow_low_precision error:&error];
+      // If we fail to configure the model, fall back to CPU
       executor.model = configuredModel ?: cpuModel;
     });
 
@@ -189,10 +197,10 @@ class CoreMLBackend: public torch::jit::PyTorchBackendInterface {
       PTMCoreMLExecutor *executor = model_wrapper->executor;
       [executor setInputs:inputs];
 
-      NSError *error;
+      NSError *error = nil;
       id<MLFeatureProvider> outputsProvider = [executor forward:&error];
       if (!outputsProvider) {
-        COREML_THROW_IF_ERROR(error, "Error running CoreML inference", tensorListToShapesStr(inputs));
+        COREML_THROW_IF_ERROR(error, "Error running CoreML inference", " Input Shape:", tensorListToShapesStr(inputs));
       }
 
       return pack_outputs(model_wrapper->outputs, outputsProvider);

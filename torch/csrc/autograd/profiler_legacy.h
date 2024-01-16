@@ -15,8 +15,7 @@
 #include <torch/csrc/profiler/stubs/base.h>
 #include <torch/csrc/profiler/util.h>
 
-namespace torch {
-namespace autograd {
+namespace torch::autograd {
 
 struct Node;
 
@@ -267,7 +266,7 @@ struct TORCH_API LegacyEvent {
   int64_t cpu_memory_usage_ = 0;
   int64_t cuda_memory_usage_ = 0;
   int device_ = -1;
-  torch::profiler::impl::ProfilerEventStub cuda_event = nullptr;
+  torch::profiler::impl::ProfilerVoidEventStub cuda_event = nullptr;
   int node_id_ = 0;
   bool is_remote_ = false;
   int64_t cuda_us_ = -1;
@@ -413,5 +412,4 @@ struct TORCH_API TLSLegacyProfilerGuard {
 };
 
 } // namespace profiler
-} // namespace autograd
-} // namespace torch
+} // namespace torch::autograd

@@ -6,6 +6,15 @@
 #include <c10/util/irange.h>
 #include <c10/util/numa.h>
 
+#ifdef USE_MIMALLOC
+#include <mimalloc.h>
+#endif
+
+#ifdef __linux__
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
+
 // TODO: rename flags to C10
 C10_DEFINE_bool(
     caffe2_cpu_allocator_do_zero_fill,
@@ -41,7 +50,7 @@ void memset_junk(void* data, size_t num) {
   }
 }
 
-#ifdef __linux__
+#if defined(__linux__) && !defined(__ANDROID__)
 static inline bool is_thp_alloc_enabled() {
   static bool value = [&] {
     const char* ptr = std::getenv("THP_MEM_ALLOC_ENABLE");
@@ -53,7 +62,7 @@ static inline bool is_thp_alloc_enabled() {
 inline size_t c10_compute_alignment(size_t nbytes) {
   static const auto pagesize = sysconf(_SC_PAGESIZE);
   // for kernels that don't provide page size, default it to 4K
-  const size_t thp_alignment = (gPagesize < 0 ? gPagesize : pagesize);
+  const size_t thp_alignment = (pagesize < 0 ? gPagesize : pagesize);
   return (is_thp_alloc_enabled() ? thp_alignment : gAlignment);
 }
 
@@ -93,7 +102,11 @@ void* alloc_cpu(size_t nbytes) {
       nbytes,
       " bytes.");
 #elif defined(_MSC_VER)
+#ifdef USE_MIMALLOC
+  data = mi_malloc_aligned(nbytes, gAlignment);
+#else
   data = _aligned_malloc(nbytes, gAlignment);
+#endif
   CAFFE_ENFORCE(
       data,
       "DefaultCPUAllocator: not enough memory: you tried to allocate ",
@@ -139,7 +152,11 @@ void* alloc_cpu(size_t nbytes) {
 
 void free_cpu(void* data) {
 #ifdef _MSC_VER
+#ifdef USE_MIMALLOC
+  mi_free(data);
+#else
   _aligned_free(data);
+#endif
 #else
   // NOLINTNEXTLINE(cppcoreguidelines-no-malloc)
   free(data);

@@ -1,10 +1,12 @@
 #include <torch/csrc/autograd/input_buffer.h>
 
+#include <ATen/CachedTensorUtils.h>
 #include <ATen/LegacyBatchedTensorImpl.h>
 #include <ATen/SparseCsrTensorUtils.h>
-#include <ATen/SparseTensorUtils.h>
 #include <ATen/TensorOperators.h>
 #include <ATen/TensorSubclassLikeUtils.h>
+#include <ATen/core/grad_mode.h>
+#include <ATen/native/SparseTensorUtils.h>
 
 #include <c10/core/DeviceGuard.h>
 #include <c10/core/Event.h>
@@ -77,7 +79,8 @@ bool can_accumulate_inplace(const Variable& v) {
       v.is_non_overlapping_and_dense() &&
 
       // and we hold the last reference
-      v.use_count() == 1 && v.has_storage() && v.storage().use_count() == 1);
+      at::caching::adjusted_use_count(v) == 1 && v.has_storage() &&
+      v.storage().use_count() == 1);
 }
 } // anonymous namespace
 
@@ -104,6 +107,7 @@ static void accumulate(
   //  5) The other Tensor is not a Tensor subclass (except sparse), since
   //     it's hard to predict the semantics of arbitrary subclass behavior.
 
+  // NOLINTNEXTLINE(bugprone-branch-clone)
   if (at::GradMode::is_enabled()) {
     buffer[pos] = old_var + var;
   } else if (
@@ -156,6 +160,7 @@ void InputBuffer::add(
 
   TORCH_INTERNAL_ASSERT(device_of(var));
   c10::optional<c10::Stream> opt_accumulate_stream = c10::nullopt;
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
   if (device_of(var)->is_cuda()) {
     const auto on_producer =
         opt_producer_stream && device_of(var) == opt_producer_stream->device();
@@ -186,6 +191,7 @@ void InputBuffer::add(
         opt_sync_stream = opt_producer_stream;
       } else {
         // (5)
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         opt_accumulate_stream = guard.getDefaultStream(*device_of(var));
       }
       if (opt_sync_stream && (opt_accumulate_stream != opt_sync_stream)) {

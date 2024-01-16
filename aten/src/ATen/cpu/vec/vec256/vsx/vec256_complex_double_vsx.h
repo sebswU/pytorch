@@ -226,8 +226,9 @@ class Vectorized<ComplexDbl> {
   }
 
   Vectorized<ComplexDbl> abs_() const {
-    auto ret = abs_2_();
-    return ret.elwise_sqrt();
+    auto vi = el_mergeo();
+    auto vr = el_mergee();
+    return {Sleef_hypotd2_u05vsx(vr._vec0, vi._vec0), Sleef_hypotd2_u05vsx(vr._vec1, vi._vec1)};
   }
 
   Vectorized<ComplexDbl> abs() const {
@@ -318,6 +319,9 @@ class Vectorized<ComplexDbl> {
     auto sub = ione - *this;
     auto ln = (sum / sub).log(); // ln((i + z)/(i - z))
     return ln * vd_imag_half; // i/2*ln()
+  }
+  Vectorized<ComplexDbl> atanh() const {
+    return map(std::atanh);
   }
 
   Vectorized<ComplexDbl> sin() const {
@@ -456,6 +460,9 @@ class Vectorized<ComplexDbl> {
   Vectorized<ComplexDbl> exp2() const {
     return map(exp2_impl);
   }
+  Vectorized<ComplexDbl> expm1() const {
+    return map(std::expm1);
+  }
 
   Vectorized<ComplexDbl> pow(const Vectorized<ComplexDbl>& exp) const {
     __at_align__ ComplexDbl x_tmp[size()];
@@ -472,36 +479,6 @@ class Vectorized<ComplexDbl> {
     return map(at::native::sgn_impl);
   }
 
-  Vectorized<ComplexDbl> hypot(const Vectorized<ComplexDbl>& b) const {
-      TORCH_CHECK(false, "not supported for complex numbers");
-  }
-
-  Vectorized<ComplexDbl> nextafter(const Vectorized<ComplexDbl>& b) const {
-      TORCH_CHECK(false, "not supported for complex numbers");
-  }
-
-  Vectorized<ComplexDbl> igamma(const Vectorized<ComplexDbl>& x) const {
-    TORCH_CHECK(false, "not supported for complex numbers");
-  }
-
-  Vectorized<ComplexDbl> igammac(const Vectorized<ComplexDbl>& x) const {
-    TORCH_CHECK(false, "not supported for complex numbers");
-  }
-
-  Vectorized<ComplexDbl> atan2(const Vectorized<ComplexDbl>& b) const {
-    TORCH_CHECK(false, "not supported for complex numbers");
-  }
-  Vectorized<ComplexDbl> erf() const {
-    TORCH_CHECK(false, "not supported for complex numbers");
-  }
-  Vectorized<ComplexDbl> erfc() const {
-    TORCH_CHECK(false, "not supported for complex numbers");
-  }
-
-  Vectorized<ComplexDbl> expm1() const {
-    TORCH_CHECK(false, "not supported for complex numbers");
-  }
-
   Vectorized<ComplexDbl> operator<(const Vectorized<ComplexDbl>& other) const {
     TORCH_CHECK(false, "not supported for complex numbers");
   }
@@ -516,25 +493,14 @@ class Vectorized<ComplexDbl> {
   }
 
   Vectorized<ComplexDbl> eq(const Vectorized<ComplexDbl>& other) const {
-    auto ret = (*this == other);
-    return ret & vd_one;
+    auto eq = (*this == other);  // compares real and imag individually
+    // If both real numbers and imag numbers are equal, then the complex numbers are equal
+    return (eq.real() & eq.imag()) & vd_one;
   }
   Vectorized<ComplexDbl> ne(const Vectorized<ComplexDbl>& other) const {
-    auto ret = (*this != other);
-    return ret & vd_one;
-  }
-
-  Vectorized<ComplexDbl> lt(const Vectorized<ComplexDbl>& other) const {
-    TORCH_CHECK(false, "not supported for complex numbers");
-  }
-  Vectorized<ComplexDbl> le(const Vectorized<ComplexDbl>& other) const {
-    TORCH_CHECK(false, "not supported for complex numbers");
-  }
-  Vectorized<ComplexDbl> gt(const Vectorized<ComplexDbl>& other) const {
-    TORCH_CHECK(false, "not supported for complex numbers");
-  }
-  Vectorized<ComplexDbl> ge(const Vectorized<ComplexDbl>& other) const {
-    TORCH_CHECK(false, "not supported for complex numbers");
+    auto ne = (*this != other);  // compares real and imag individually
+    // If either real numbers or imag numbers are not equal, then the complex numbers are not equal
+    return (ne.real() | ne.imag()) & vd_one;
   }
 
   DEFINE_MEMBER_OP(operator==, ComplexDbl, vec_cmpeq)
